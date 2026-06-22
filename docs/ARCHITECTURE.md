@@ -83,6 +83,206 @@ flowchart TB
 
 ---
 
+## Implementation Roadmap & Timeline
+
+This section provides a **concrete, time-bound implementation plan** for `nexus-wireguard` aligned with the layered architecture and the broader NovaNet / Esslinger & Co. prototyping goals.
+
+The timeline assumes parallel development across the Nexus stack (QNET blockchain maturing, AI agent swarm capabilities expanding via Lyra/Xen/Grok Launcher, prototype hardware availability, and Yggdrasil stability). Dates are target windows and will be adjusted based on dependencies and learnings from early deployments.
+
+### Visual Timeline (Gantt Chart)
+
+```mermaid
+gantt
+    title Nexus WireGuard Implementation Roadmap
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %Y
+    todayMarker off
+
+    section Foundation (L1 Core)
+    v0.1 Repo Bootstrap & Architecture     :done, 2026-06-22, 2026-06-23
+    v0.2 Dynamic Peer Controller + Docker  :2026-06-24, 2026-07-31
+
+    section Integration (L1 + L3)
+    v0.3 QNET Blockchain Hooks           :2026-08-01, 2026-08-31
+
+    section Intelligence (L1 + L4)
+    v0.4 AI Swarm Integration & Observability :2026-09-01, 2026-10-15
+
+    section Hardening & Scale
+    v0.5 Production Readiness & Hardware   :2026-10-16, 2026-12-31
+
+    section Evolution
+    2027 Global Testnet & Incentive Live   :2027-01-01, 2027-06-30
+```
+
+### Phase Details
+
+#### Phase 0 / v0.1 — Foundation & Architecture (Completed: June 22–23, 2026)
+
+**Status**: Done
+
+**Deliverables**
+- Public GitHub repository with MIT license and protective `.gitignore`
+- Comprehensive `README.md` with vision, nuances, and quick-start guidance
+- Detailed `docs/ARCHITECTURE.md` with color-coded Mermaid layer diagram, layer responsibilities, edge cases, data flows, and this timeline
+- Initial simplified ASCII diagram retained in main README for quick reference
+
+**Success Criteria**
+- Clear ownership of L1 (WireGuard) established with hooks to all other layers
+- Documentation sufficient for contributors and parallel Nexus workstreams to align
+
+---
+
+#### Phase 1 / v0.2 — Dynamic Peer Controller & Containerization (Target: June 24 – July 31, 2026)
+
+**Goal**: Move from static configs to a functional, controllable L1 implementation that can be orchestrated by higher layers.
+
+**Key Deliverables**
+- Python (or Rust) `controller/` module for dynamic WireGuard peer management (`wg set`, interface bring-up/teardown, roaming endpoint updates)
+- Health monitoring exporter (interface stats, peer RTT/loss, key age) consumable by L4 AI agents and Grok Launcher
+- Multi-arch Docker images + example `docker-compose.yml` aligned with L0 networking modes
+- Static + dynamic example configurations in `configs/example/`
+- Basic key generation and rotation helpers
+- Initial test harness (local multi-node simulation)
+
+**Dependencies**
+- Stable Linux kernel with WireGuard module (or wireguard-go) in development environment
+- Basic Yggdrasil node for parallel/overlay testing
+- Early Grok Launcher dashboard skeleton (for metrics visualization)
+
+**Success Criteria**
+- Can bring up dynamic tunnels between 3+ nodes with automatic peer updates
+- Metrics exported in structured format (Prometheus/OpenMetrics or simple JSON)
+- Dockerized deployment works on amd64 and arm64 (Tenda Nova class hardware)
+
+**Risks & Mitigations**
+- MTU and nesting issues with Yggdrasil → extensive testing + documented safe defaults
+- Roaming behavior on changing networks → focus on endpoint update logic early
+
+---
+
+#### Phase 2 / v0.3 — QNET Blockchain Integration (Target: August 2026)
+
+**Goal**: Close the loop between L1 and L3 so that peer discovery, key distribution, and initial reputation filtering become decentralized.
+
+**Key Deliverables**
+- QNET client integration (publish WireGuard pubkeys + endpoints, listen for announcements)
+- Reputation-weighted peer selection logic (only auto-connect to nodes above a configurable reputation threshold)
+- Simple on-chain event handling for key rotation triggers or policy updates
+- Documentation of bootstrap / seed node strategy for early network
+- Example of paid/ incentivized peering (future XCoin/QCoin hooks)
+
+**Dependencies**
+- Functional QNET testnet or local blockchain node with rune/pubkey registry capabilities
+- Stable L2 Yggdrasil for reachability during discovery
+- Basic reputation scoring model from L3 team
+
+**Success Criteria**
+- New node can discover and establish WireGuard tunnels to high-reputation peers without manual key exchange
+- Key publication and listening works end-to-end on testnet
+- Clear separation between on-chain commitments and off-chain tunnel data
+
+**Risks & Mitigations**
+- Token volatility or incentive misalignment → start with reputation-only (no economic value) and add incentives later
+- Sybil / spam peers → strong emphasis on reputation + rate limiting in v0.3
+
+---
+
+#### Phase 3 / v0.4 — AI Agent Swarm Integration & Observability (Target: September – mid-October 2026)
+
+**Goal**: Enable L4 agents (Xen technical + Lyra emotional/creative) and Grok Launcher to actively optimize and heal the L1 fabric.
+
+**Key Deliverables**
+- Rich metrics + structured events from WireGuard controller consumable by AI swarm
+- API / command interface allowing AI agents to request tunnel creation, peer removal, or key rotation
+- Self-healing logic prototype (AI detects failing tunnel → proposes alternative peer or reroute via Yggdrasil)
+- Grok Launcher dashboard widgets showing live tunnel topology, health heatmaps, and AI-proposed actions
+- Feedback loop: agents measure outcome of their changes and reinforce successful policies
+
+**Dependencies**
+- Maturing L4 AI agent swarm framework (state management, prompt engineering, skilllogin persistence)
+- Grok Launcher UI ready to embed custom widgets and visualizations
+- Rich telemetry from L0 (physical link quality) and L2 (Yggdrasil routing metrics)
+
+**Success Criteria**
+- AI agent can autonomously improve average mesh RTT or reliability by reconfiguring WireGuard peers
+- Human operator can review and approve/reject AI-proposed changes via Grok Launcher
+- Closed-loop observability from tunnel stats → agent decision → outcome measurement works
+
+**Risks & Mitigations**
+- Agent drift or destabilizing changes → conservative defaults, circuit breakers, and mandatory human review for production meshes in early versions
+- Coordination overhead between many agents → leader election or phased rollout of autonomy
+
+---
+
+#### Phase 4 / v0.5 — Production Readiness, Hardware & Scale (Target: late October – December 2026)
+
+**Goal**: Make the L1 implementation robust enough for real prototype deployments and larger meshes, with hardware integration.
+
+**Key Deliverables**
+- Tenda Nova hardware optimization (WiFi backhaul awareness, power/thermal considerations, ARM-specific builds)
+- Large-mesh testing harness and simulation tools (hundreds of nodes)
+- Advanced features: post-quantum hybrid key exchange experiments, multicast support exploration, formal methods / verification hooks
+- Production-grade security hardening (key storage, audit logging, rate limiting)
+- Initial integration with Soilnova / Vista Nova / York Autotype / Lumia prototypes over secure tunnels
+- Public or semi-public testnet participation guidelines
+
+**Dependencies**
+- Availability of Tenda Nova and prototype hardware for testing
+- Stable QNET mainnet or advanced testnet with economic incentives live
+- AI swarm sufficiently reliable for semi-autonomous operation
+- Broader Nexus corporate/legal readiness (Esslinger & Co. structures, compliance for crypto use in EU)
+
+**Success Criteria**
+- Stable operation of 50+ node mesh with mixed static/dynamic WireGuard + Yggdrasil
+- Measurable improvement in prototype data reliability (Soilnova telemetry, Vista Nova streams) when using nexus-wireguard tunnels
+- External contributors or early adopters can join the testnet following documented process
+
+**Risks & Mitigations**
+- Hardware variability on Tenda Nova → extensive compatibility testing + fallback to software-only modes
+- Regulatory uncertainty around incentives/crypto in Germany/EU → focus first on reputation and technical coordination; add economic layer carefully
+
+---
+
+#### Phase 5 / 2027 — Global Deployment, Incentives & Ecosystem Maturity
+
+**Goal**: Transition from prototyping to a self-sustaining, economically incentivized global Nexus mesh fabric where WireGuard is a core, battle-tested primitive.
+
+**Key Focus Areas**
+- Live XCoin/QCoin incentive mechanisms for bandwidth providers and relay nodes
+- Large-scale global testnet with geographic diversity
+- Deep integration across all prototypes (Soilnova environmental data, Vista Nova visualization, automation loops)
+- Production use by Esslinger & Co. internal and partner nodes
+- Post-quantum cryptography migration path as standards mature
+- Formal verification or high-assurance components for critical control paths
+- Open-source community growth and governance model
+
+**Success Vision**
+`nexus-wireguard` (L1) + the rest of the Nexus stack enables a resilient, privacy-respecting, economically self-reinforcing decentralized communication infrastructure that supports autonomous AI agent swarms and real-world prototype deployments at global scale.
+
+---
+
+### Timeline Rationale & Assumptions
+
+- **Aggressive but achievable pacing**: Early phases (v0.2–v0.3) move quickly because L1 is relatively self-contained. Later phases slow down as dependencies on L3 (QNET incentives/reputation) and L4 (mature AI agents + Grok Launcher) become critical.
+- **Parallel workstreams**: This timeline assumes concurrent progress on QNET blockchain features, AI agent capabilities (Lyra/Xen skilllogin state, Grok Launcher dashboards), Yggdrasil stability, and prototype hardware. Delays in any of those will naturally shift dependent phases.
+- **Learning loops**: Each phase includes explicit feedback mechanisms (metrics → AI agents → policy changes) so the system improves itself as we build.
+- **Risk buffer**: Later 2026 and 2027 phases include buffer for integration surprises, hardware quirks, and regulatory considerations (especially important for incentive mechanisms in the EU/Germany context).
+- **Flexibility**: Dates are targets. The living nature of this document means we will update the Gantt and phase details as we learn from real deployments.
+
+### How the Timeline Supports Self-Improvement
+
+The phased approach is deliberately designed to bootstrap the recursive improvement loop:
+
+1. v0.2 gives reliable tunnels + exportable metrics (foundation for observation).
+2. v0.3 adds decentralized discovery (reduces human configuration burden).
+3. v0.4 introduces AI agents that can act on observations and measure results.
+4. v0.5 and beyond close the economic loop (L3 incentives reinforce good behavior discovered by L4).
+
+This creates the conditions for the mesh fabric to become increasingly autonomous while remaining auditable and aligned with human intent — core to the Nexus vision.
+
+---
+
 ## Layer-by-Layer Breakdown
 
 ### L0 — Physical / Infrastructure Layer
@@ -243,18 +443,6 @@ Direct encrypted tunnels (WireGuard) carrying application traffic, Yggdrasil rou
 
 ---
 
-## Implementation Roadmap for `nexus-wireguard`
-
-This repository owns the **L1 WireGuard layer** while providing clean integration hooks to L0, L2, L3, and L4.
-
-- **v0.1** (Current): Architecture documentation, static examples, Docker skeleton.
-- **v0.2**: Dynamic peer controller + basic health monitoring (exposes data to L4).
-- **v0.3**: QNET discovery integration (L3) — publish keys, listen for peers, reputation-weighted peering.
-- **v0.4**: Full AI swarm hooks — accept optimization commands, report rich metrics, participate in self-healing loops.
-- **v0.5+**: Production features (formal verification aids, post-quantum experiments, large-scale simulation harness).
-
----
-
-**This architecture is a living document.** It will evolve as we build, test, and let the AI agents improve the system in real deployments.
+**This architecture and roadmap are living documents.** They will evolve as we build, test, and let the AI agents improve the system in real deployments.
 
 *Maintained as part of the NovaNet / Esslinger & Co. prototyping initiative — Hannover, 2026.*
