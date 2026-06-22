@@ -83,6 +83,272 @@ flowchart TB
 
 ---
 
+## Refined v0.2 Implementation Details (Dynamic Peer Controller + Docker)
+
+**Phase Window**: June 24 – July 31, 2026  
+**Status**: Planning / Early Implementation  
+**Owner**: `nexus-wireguard` (L1 focus)  
+**Goal**: Deliver a functional, containerized dynamic WireGuard controller that can be driven by configuration and later by higher layers (L3 QNET discovery + L4 AI agents).
+
+This section provides **actionable, refined implementation details** for v0.2 — going far beyond the high-level roadmap. It covers scope, architecture, interfaces, tech choices, edge cases, testing strategy, and integration hooks.
+
+### 1. Scope & Feature Priorities for v0.2
+
+**In Scope (Must Have)**
+- Dynamic runtime management of WireGuard peers (add, remove, update endpoint, update allowed-ips)
+- Support for multiple WireGuard interfaces (wg0, wg1, …) managed from one controller
+- Roaming / endpoint update handling (detect IP change or accept external updates)
+- Structured health monitoring and metrics export (interface + per-peer stats)
+- Basic key lifecycle support (generate keys, rotate keys with grace period)
+- Docker-first deployment model with multi-arch support (amd64 + arm64)
+- Clean separation between core logic and configuration
+- CLI + config-file driven operation (prepare for future API)
+- Comprehensive logging and error handling
+
+**Out of Scope for v0.2 (Deferred)**
+- Full QNET blockchain integration (v0.3)
+- AI agent command interface / self-optimization loops (v0.4)
+- Production-grade persistent state / clustering
+- Post-quantum cryptography
+- Advanced multicast or userspace WireGuard extensions
+- Web UI or complex dashboard (Grok Launcher integration comes in v0.4)
+
+**Stretch Goals (if time permits)**
+- Simple Prometheus-compatible metrics endpoint
+- Basic persistent peer database (SQLite or JSON)
+- Automatic MTU tuning helper based on underlay detection
+
+### 2. Proposed Module & Directory Structure
+
+```
+nexus-wireguard/
+├─ controller/
+│   ├─ __init__.py
+│   ├─ wg_manager.py          # Core WireGuard interface management (wg set / wg show wrappers)
+│   ├─ peer_manager.py        # High-level peer lifecycle, roaming logic, state
+│   ├─ health_monitor.py      # Collects wg show + interface stats, computes health scores
+│   ├─ metrics_exporter.py    # Structured output (JSON, Prometheus, or simple HTTP)
+│   ├─ key_manager.py         # Key generation, rotation orchestration, secure storage helpers
+│   ├─ config.py              # Pydantic models for configuration
+│   ├─ cli.py                 # Typer / Click CLI entrypoint
+│   └─ daemon.py              # Long-running mode (watch config, periodic health checks)
+├─ docker/
+│   ├─ Dockerfile
+│   ├─ docker-compose.yml     # Example multi-node setup
+│   └─ entrypoint.sh
+├─ configs/
+│   ├─ example/
+│   │   ├─ wg0.conf.template
+│   │   └─ controller.yaml      # Example controller config
+│   └─ README.md
+├─ tests/
+│   ├─ test_wg_manager.py
+│   ├─ test_peer_manager.py
+│   └─ integration/
+├─ docs/
+│   └─ v0.2-implementation-plan.md   # This refined spec (or link here)
+├─ pyproject.toml / requirements.txt
+└─ README.md
+```
+
+**Design Principles for v0.2**
+- Prefer **reliability and simplicity** over premature optimization.
+- Use **subprocess** + `wg` / `wg-quick` CLI for maximum compatibility and auditability (avoid fragile kernel netlink bindings in first version).
+- Make the controller **observable by default** (rich logging + structured metrics).
+- Keep state in memory for v0.2; persistence is a v0.3+ concern.
+- Configuration-driven with clear validation (Pydantic).
+
+### 3. Core Components & Responsibilities
+
+#### `wg_manager.py`
+- Thin, well-tested wrapper around `wg` and `ip` commands.
+- Methods: `add_peer()`, `remove_peer()`, `update_peer_endpoint()`, `update_allowed_ips()`, `get_interface_status()`, `get_peer_status()`.
+- Handles interface creation (`ip link add`) and basic bring-up if needed.
+- Strong error handling and parsing of `wg show` JSON output (when available) or text fallback.
+
+#### `peer_manager.py`
+- High-level orchestrator.
+- Maintains desired vs actual state.
+- Implements roaming logic: accept external endpoint updates or detect local IP changes (via netifaces or similar).
+- Supports both "static config" mode and "dynamic managed" mode.
+- Exposes hooks for future L3 (QNET peer announcements) and L4 (AI commands).
+
+#### `health_monitor.py`
+- Periodic collection of:
+  - Interface stats (rx/tx bytes, errors)
+  - Per-peer latest handshake, transfer, RTT estimates (where possible)
+  - Calculated health score (simple weighted formula in v0.2)
+- Detects "stale" peers (no handshake for configurable threshold).
+- Emits structured events for logging / metrics.
+
+#### `metrics_exporter.py`
+- Outputs in multiple formats:
+  - JSON to stdout / file (easy for v0.2)
+  - Prometheus exposition format (optional HTTP endpoint)
+  - Simple internal dict for in-process L4 agents later
+- Designed so L4 AI agents and Grok Launcher can consume it with minimal parsing.
+
+#### `key_manager.py`
+- Key generation using `wg genkey` / `wg pubkey`.
+- Basic rotation workflow: generate new keypair, add grace period for old key, then remove.
+- Secure storage recommendations (env vars, Docker secrets, or future TPM/HSM integration).
+- Prepares the interface for future decentralized key distribution via QNET.
+
+### 4. Configuration Model (High-Level)
+
+Example `controller.yaml`:
+
+```yaml
+controller:
+  interfaces:
+    - name: wg0
+      listen_port: 51820
+      private_key: ${WG0_PRIVATE_KEY}   # or path to file
+      peers:
+        - public_key: "..."
+          allowed_ips: ["10.0.0.2/32"]
+          endpoint: "203.0.113.50:51820"
+          persistent_keepalive: 25
+        # more peers...
+  health:
+    check_interval_seconds: 30
+    stale_handshake_threshold_seconds: 180
+  metrics:
+    export_format: ["json", "prometheus"]
+    prometheus_port: 9090
+  roaming:
+    enabled: true
+    detection_method: "external_update"   # or "local_ip_change"
+```
+
+Validation via Pydantic models with clear error messages.
+
+### 5. Docker & Deployment Model
+
+**Multi-arch support** from day one (important for Tenda Nova ARM devices and mixed environments).
+
+`Dockerfile` highlights:
+- Base: `python:3.11-slim` or `alpine` for size
+- Install `wireguard-tools` + `iproute2`
+- Non-root user where possible (capabilities for network admin)
+- Healthcheck using the controller’s own health endpoint
+
+`docker-compose.yml` example will demonstrate:
+- Multiple nodes on a Docker network (simulating L0)
+- One controller managing one or more wg interfaces
+- Yggdrasil running in parallel or stacked (for hybrid testing)
+- Volume mounts for persistent keys/config (with warnings)
+
+**Networking considerations**:
+- Use `host` or `macvlan` networking mode for best WireGuard performance in production-like tests.
+- Document bridge mode limitations (NAT, multicast issues).
+
+### 6. Key Management & Rotation Strategy (v0.2 Foundation)
+
+- Controller can generate fresh keypairs on demand.
+- Supports "graceful rotation": add new public key to peers while old key still works for a configurable window, then remove old key.
+- Keys never logged in plaintext.
+- Environment variable or Docker secret injection for private keys in v0.2.
+- Prepares clean extension points for v0.3 (QNET-published keys) and v0.4 (AI-triggered rotation).
+
+**Edge Cases Addressed**:
+- Rotation while active traffic is flowing
+- Partial failure during rotation (rollback capability)
+- Key compromise detection (future L4 anomaly detection will feed this)
+
+### 7. Health Monitoring & Metrics Details
+
+Collected data points (per interface + per peer):
+- `latest_handshake`, `transfer_rx/tx`, `persistent_keepalive`
+- Calculated: `time_since_last_handshake`, `estimated_rtt` (best-effort), `health_score`
+- Interface level: `rx_bytes`, `tx_bytes`, `errors`, `dropped`
+
+Export formats:
+- JSON lines (easy to tail / ship)
+- Prometheus text exposition (for existing monitoring stacks)
+- In-memory for direct L4 agent consumption (future)
+
+**Nuance**: WireGuard itself does not expose RTT directly. v0.2 will use best-effort estimation or simply surface raw data for L4 agents to compute higher-order metrics.
+
+### 8. Integration Hooks (Designed for Future Layers)
+
+Even in v0.2 we design clean extension points:
+
+- **L2 (Yggdrasil)**: Document how to run Yggdrasil over/parallel to managed WireGuard interfaces. Provide example configs.
+- **L3 (QNET)**: `peer_manager` will have pluggable "peer source" — static config today, QNET listener in v0.3.
+- **L4 (AI Swarm)**: Health metrics and peer state exposed via simple internal API / shared memory or HTTP. AI agents will later call methods like `request_peer_update()` or `trigger_key_rotation()`.
+- **L0 (Physical/Docker)**: Clear networking requirements documented; health monitor can surface underlay issues when detectable.
+
+### 9. Testing & Validation Strategy
+
+**Unit Tests**:
+- Mock `wg` / `ip` command output for deterministic testing of managers.
+- Pydantic config validation tests.
+- Key rotation state machine tests.
+
+**Integration Tests**:
+- Local multi-container test using Docker Compose (3–5 nodes).
+- Simulate roaming by changing endpoint and verifying update.
+- Health monitor accuracy under packet loss / high latency (using `tc` or similar).
+
+**Manual / End-to-End**:
+- Deploy on real Tenda Nova hardware (arm64) if available during phase.
+- Hybrid test: WireGuard + running Yggdrasil node.
+- Performance baseline (throughput, CPU under load).
+
+**Success Criteria (Measurable)**
+- Controller can dynamically add/remove 50+ peers with < 2s convergence.
+- Health metrics exported and visible in JSON + Prometheus format.
+- Docker image runs cleanly on both amd64 and arm64.
+- Roaming endpoint update works within 30 seconds of change.
+- All critical paths have unit + integration test coverage > 70%.
+
+### 10. Risks, Edge Cases & Mitigations Specific to v0.2
+
+| Risk / Edge Case                        | Impact | Mitigation in v0.2                                      |
+otes |
+|-----------------------------------------|--------|---------------------------------------------------------|------|
+| MTU & fragmentation with Yggdrasil     | High   | Provide recommended MTU values + PMTUD helper script   | Document clearly |
+| Unreliable `wg show` parsing           | Medium | Robust text + JSON fallback parser + extensive tests   | - |
+| Roaming on CGNAT / strict NAT          | Medium | Support external endpoint injection; document limitations | Prepare for relay in later phase |
+| Key rotation during active sessions    | Medium | Grace period + atomic peer updates                     | Test thoroughly |
+| Docker networking performance        | Medium | Recommend `host`/`macvlan`; document bridge limitations | - |
+| Resource usage on low-end ARM (Tenda)  | Low    | Profile early; keep Python lightweight + consider Rust later | - |
+| State loss on controller restart       | Medium | In-memory only in v0.2; document re-sync on startup    | Persistence in v0.3 |
+
+### 11. Suggested Tech Stack for v0.2
+
+- **Language**: Python 3.11+ (fast iteration, excellent Docker ecosystem, good for future AI integration)
+- **CLI**: Typer (modern, type-safe) or Click
+- **Config**: Pydantic v2 + PyYAML
+- **WireGuard interaction**: `subprocess` + `wg` / `ip` commands (most reliable cross-platform approach for v0.2)
+- **Optional**: `pyroute2` for more advanced netlink work if subprocess proves limiting
+- **Metrics**: `prometheus_client` library (optional but recommended)
+- **Testing**: `pytest`, `pytest-docker`, `responses` for mocking
+- **Container**: Multi-stage Docker build, `docker buildx` for multi-arch
+
+**Why not Rust in v0.2?** Rust is excellent for the final high-performance daemon, but Python allows much faster delivery of working functionality and easier integration with the AI/agent side of Nexus in early phases. We can rewrite hot paths or the entire controller in Rust in v0.5+ if profiling demands it.
+
+### 12. Milestone Breakdown Inside v0.2
+
+**Early July (Week 1–2)**
+- Core `wg_manager` + `peer_manager` with static + dynamic peer support
+- Basic CLI and config loading
+- Initial Docker image that can bring up a managed interface
+
+**Mid July (Week 3)**
+- Health monitor + metrics export (JSON + Prometheus)
+- Roaming / endpoint update logic
+- Key generation + basic rotation workflow
+
+**Late July (Week 4)**
+- Full test suite + integration tests with Docker Compose
+- Refined documentation and example configs
+- Stretch: Prometheus endpoint + simple persistent peer list
+- Phase retrospective and v0.3 planning kickoff
+
+---
+
 ## Implementation Roadmap & Timeline
 
 This section provides a **concrete, time-bound implementation plan** for `nexus-wireguard` aligned with the layered architecture and the broader NovaNet / Esslinger & Co. prototyping goals.
@@ -140,7 +406,7 @@ gantt
 **Key Deliverables**
 - Python (or Rust) `controller/` module for dynamic WireGuard peer management (`wg set`, interface bring-up/teardown, roaming endpoint updates)
 - Health monitoring exporter (interface stats, peer RTT/loss, key age) consumable by L4 AI agents and Grok Launcher
-- Multi-arch Docker images + example `docker-compose.yml` aligned with L0 networking modes
+- Docker-ready multi-arch images + example `docker-compose.yml` aligned with L0 networking modes
 - Static + dynamic example configurations in `configs/example/`
 - Basic key generation and rotation helpers
 - Initial test harness (local multi-node simulation)
@@ -265,7 +531,6 @@ gantt
 ### Timeline Rationale & Assumptions
 
 - **Aggressive but achievable pacing**: Early phases (v0.2–v0.3) move quickly because L1 is relatively self-contained. Later phases slow down as dependencies on L3 (QNET incentives/reputation) and L4 (mature AI agents + Grok Launcher) become critical.
-- **Parallel workstreams**: This timeline assumes concurrent progress on QNET blockchain features, AI agent capabilities (Lyra/Xen skilllogin state, Grok Launcher dashboards), Yggdrasil stability, and prototype hardware. Delays in any of those will naturally shift dependent phases.
 - **Learning loops**: Each phase includes explicit feedback mechanisms (metrics → AI agents → policy changes) so the system improves itself as we build.
 - **Risk buffer**: Later 2026 and 2027 phases include buffer for integration surprises, hardware quirks, and regulatory considerations (especially important for incentive mechanisms in the EU/Germany context).
 - **Flexibility**: Dates are targets. The living nature of this document means we will update the Gantt and phase details as we learn from real deployments.
