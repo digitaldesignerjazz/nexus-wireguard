@@ -23,6 +23,8 @@ WireGuard's modern cryptography (Curve25519 key exchange, ChaCha20-Poly1305 AEAD
 
 This component enables **trusted private overlays** within (or alongside) the public Yggdrasil mesh, secure service exposure, and hybrid topologies that balance performance, privacy, and decentralization.
 
+> **📍 Full Architecture Documentation**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the complete layered model, Mermaid diagrams, layer-by-layer analysis, data flows, cross-cutting concerns, and implementation roadmap.
+
 ## ⚡ Why WireGuard for Nexus?
 
 ### Performance & Scalability
@@ -45,12 +47,18 @@ This component enables **trusted private overlays** within (or alongside) the pu
 - **NAT Traversal**: Excellent for most NAT types via keepalives; struggles with symmetric NAT or strict CGNAT — mitigate with public relays, IPv6 preference (Yggdrasil shines here), or ICE-like signaling via blockchain.
 - **Key Bootstrap & Distribution**: Decentralized chicken-and-egg problem. Solutions explored: out-of-band QR codes, blockchain-published pubkeys (QNET), gossip protocols in mesh, or trusted introducer nodes in early swarms.
 - **MTU & Fragmentation**: Nested tunnels (Yggdrasil over WireGuard or vice-versa) require careful MTU tuning and Path MTU Discovery (PMTUD). Test with `ping -M do -s 1472`.
-- **Large Meshes**: WireGuard itself is O(n) peers per interface but highly efficient. For 500+ nodes consider hierarchical clustering or dynamic on-demand tunnels managed by AI swarm.
-- **Mobility & Roaming**: Built-in support; AI agents can detect IP changes and push `wg set` updates in real time.
+- **Large Meshes**: WireGuard peers are O(n) in config but highly efficient; for 500+ nodes consider hierarchical clustering or dynamic on-demand tunnels managed by AI swarm.
+- **Mobility & Roaming**: Built-in support via endpoint updates; AI agents can detect IP changes and push `wg set` updates in real time.
 - **Multicast / Broadcast**: Native WireGuard is unicast; use userspace extensions, multicast routing daemons (e.g., over Yggdrasil), or app-level replication for group comms.
 - **Post-Quantum Future**: Current primitives are classical. Roadmap includes hybrid post-quantum key exchange experiments when standardized and performant.
 
-## 🏗️ Architecture & Integration Points
+## 🏗️ Architecture at a Glance
+
+The Nexus communication fabric follows a **composable layered model** (L0–L5). WireGuard (this repo) primarily owns **L1** while providing clean hooks into all other layers.
+
+See the full interactive Mermaid diagram and detailed breakdown in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+**Simplified view**:
 
 ```
 Physical / Docker Network / Tenda Nova WiFi
@@ -65,20 +73,6 @@ AI Agent Swarm (optimization, healing, predictive routing)
           ↓
 Applications: Grok Launcher dashboards, prototypes (Soilnova telemetry, Vista Nova viz), blockchain nodes
 ```
-
-**Key Integration Modules (planned)**:
-
-- `controller/`: Python/Rust daemon for config generation, peer lifecycle, health checks, integration with Grok Launcher monitoring.
-- `discovery/`: QNET client for publishing/listening peer endpoints & pubkeys; reputation-weighted peering.
-- `docker/`: Multi-arch Docker images + compose examples for rapid Nexus node deployment with pre-wired secure links.
-- `scripts/`: Automation for mesh status, tunnel bring-up, key rotation, integration with Yggdrasil admin socket.
-- `docs/`: Architecture decision records (ADRs), security audits, performance benchmarks.
-
-**Synergies**:
-- **With Yggdrasil**: WireGuard as high-speed trusted underlay for critical paths; Yggdrasil for best-effort global reachability and metadata resistance.
-- **With QNET Blockchain**: Economic incentives for providing bandwidth/relays; decentralized ACLs or paid peering; rune-based access control.
-- **With AI Swarms**: Agents continuously measure RTT/jitter/loss across tunnels, propose reconfigurations, simulate "what-if" topologies, and self-heal partitions.
-- **With Prototypes**: Secure channels for real-time sensor data (Soilnova), visual streams (Vista Nova), or hardware control loops (York Autotype).
 
 ## 🚀 Roadmap
 
@@ -144,7 +138,7 @@ Please follow conventional commits and add tests/docs where applicable. For larg
 
 ## 📜 License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details (to be added).
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
